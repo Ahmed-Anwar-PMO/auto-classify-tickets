@@ -187,15 +187,31 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
 
 @app.post("/sync/catalog")
 def sync_catalog():
-    """Fetch catalog from Shopify and cache. Requires SHOPIFY_STOREFRONT_TOKEN."""
-    if not settings.SHOPIFY_STOREFRONT_TOKEN or not settings.SHOPIFY_STORE_DOMAIN:
-        raise HTTPException(status_code=400, detail="Shopify not configured")
-    from shopify_catalog import fetch_products_storefront, save_catalog_to_file
-    catalog = fetch_products_storefront(settings.SHOPIFY_STORE_DOMAIN, settings.SHOPIFY_STOREFRONT_TOKEN)
-    save_catalog_to_file(catalog, _cache_dir / "catalog.json")
+    """Fetch catalog from Shopify Storefront API or sitemap fallback. Writes cache/catalog.json."""
+    domain = settings.SHOPIFY_STORE_DOMAIN or "shopaleena.com"
+    out_path = _cache_dir / "catalog.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if settings.SHOPIFY_STOREFRONT_TOKEN and domain:
+        try:
+            from shopify_catalog import fetch_products_storefront, save_catalog_to_file
+            catalog = fetch_products_storefront(domain, settings.SHOPIFY_STOREFRONT_TOKEN)
+            save_catalog_to_file(catalog, out_path)
+            global _matcher
+            _matcher = None
+            return {"ok": True, "products": len(catalog), "source": "storefront"}
+        except Exception as e:
+            if "401" in str(e) or "Unauthorized" in str(e):
+                pass
+            else:
+                raise
+
+    from shopify_catalog import save_catalog_to_file, fetch_from_sitemap
+    catalog = fetch_from_sitemap(domain)
+    save_catalog_to_file(catalog, out_path)
     global _matcher
     _matcher = None
-    return {"ok": True, "products": len(catalog)}
+    return {"ok": True, "products": len(catalog), "source": "sitemap"}
 
 
 @app.post("/match")

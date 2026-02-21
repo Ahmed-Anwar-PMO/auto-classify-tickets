@@ -2,6 +2,7 @@
 
 import json
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import requests
@@ -71,6 +72,45 @@ def fetch_products_storefront(store_domain: str, token: str) -> list[dict]:
         cursor = page_info.get("endCursor")
         time.sleep(0.6)  # ~2 req/sec
 
+    return products
+
+
+def fetch_from_sitemap(domain: str) -> list[dict]:
+    """Fallback: parse sitemap.xml for product URLs when Storefront API unavailable."""
+    url = f"https://{domain}/sitemap.xml"
+    r = requests.get(url, timeout=15)
+    r.raise_for_status()
+    root = ET.fromstring(r.content)
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9", "image": "http://www.google.com/schemas/sitemap-image/1.1"}
+    products = []
+    for sitemap in root.findall("sm:sitemap", ns):
+        loc = sitemap.find("sm:loc", ns)
+        if loc is None or "products" not in (loc.text or ""):
+            continue
+        sr = requests.get(loc.text, timeout=15)
+        sr.raise_for_status()
+        sroot = ET.fromstring(sr.content)
+        for url_elem in sroot.findall("sm:url", ns):
+            loc_elem = url_elem.find("sm:loc", ns)
+            if loc_elem is None:
+                continue
+            product_url = loc_elem.text
+            if "/products/" not in (product_url or ""):
+                continue
+            handle = product_url.rstrip("/").split("/products/")[-1].split("?")[0]
+            img_url = None
+            for img in url_elem.findall("image:image", ns):
+                iloc = img.find("image:loc", ns)
+                if iloc is not None and iloc.text:
+                    img_url = iloc.text
+                    break
+            products.append({
+                "id": f"sitemap:{handle}",
+                "handle": handle,
+                "title": handle.replace("-", " ").title(),
+                "online_store_url": product_url,
+                "images": [img_url] if img_url else [],
+            })
     return products
 
 

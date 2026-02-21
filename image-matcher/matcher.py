@@ -89,11 +89,8 @@ class ProductMatcher:
 
 
 def load_catalog_for_matcher(catalog_path: Path | None, store_domain: str, token: str) -> list[dict]:
-    """Load catalog from file or Shopify API."""
+    """Load catalog from file only. Use /sync/catalog to populate (API or sitemap)."""
     if catalog_path and catalog_path.exists():
         from shopify_catalog import load_catalog_from_file
         return load_catalog_from_file(catalog_path)
-    if token and store_domain:
-        from shopify_catalog import fetch_products_storefront
-        return fetch_products_storefront(store_domain, token)
     return []
