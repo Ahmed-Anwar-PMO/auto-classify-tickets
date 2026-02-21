@@ -51,10 +51,11 @@ def get_matcher():
     return _matcher
 
 
-async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> None:
-    """Background: fetch comments, download images, match, log."""
+async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> list[dict]:
+    """Fetch comments, download images, match, log. Returns list of predictions."""
+    results: list[dict] = []
     if not settings.zendesk_ok:
-        return
+        return results
     comments = fetch_ticket_comments(
         settings.ZENDESK_SUBDOMAIN,
         settings.ZENDESK_EMAIL,
@@ -63,12 +64,12 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> Non
     )
     attachments = iter_image_attachments(comments)
     if not attachments:
-        return
+        return results
 
     matcher = get_matcher()
     if matcher is None:
         print(f"[{correlation_id}] No catalog loaded, skip matching")
-        return
+        return results
 
     supabase = get_client()
     download_dir = _data_dir / "downloads" / str(ticket_id)
@@ -128,14 +129,25 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> Non
                 "zendesk_attachment_id": att_id,
                 "attachment_content_url": content_url,
             })
+            results.append({
+                "attachment_id": att_id,
+                "predicted_product_url": pred.get("url") if pred else None,
+                "predicted_product_id": pred.get("product_id") if pred else None,
+                "confidence": float(confidence),
+                "top_k": top_k_clean,
+            })
         finally:
             path.unlink(missing_ok=True)
+    return results
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _data_dir.mkdir(parents=True, exist_ok=True)
     _cache_dir.mkdir(parents=True, exist_ok=True)
+    catalog_path = _cache_dir / "catalog.json"
+    if not catalog_path.exists():
+        print("WARN: catalog.json not found. Call POST /sync/catalog or POST /sync/quick after deploy.")
     yield
     # cleanup if needed
 
@@ -162,15 +174,20 @@ def health():
 async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
     """Zendesk webhook: validate signature, enqueue processing."""
     body_bytes = await request.body()
-    timestamp = request.headers.get("x-zendesk-webhook-signature-timestamp", "") or request.headers.get("x-zendesk-webhook-timestamp", "")
-    signature = request.headers.get("x-zendesk-webhook-signature", "")
+    secret = (settings.ZENDESK_WEBHOOK_SECRET or "").strip()
+    header_secret = (request.headers.get("x-webhook-secret") or request.headers.get("X-Webhook-Secret") or "").strip()
+    timestamp = request.headers.get("x-zendesk-webhook-signature-timestamp") or request.headers.get("x-zendesk-webhook-timestamp") or ""
+    signature = request.headers.get("x-zendesk-webhook-signature") or ""
 
-    # Skip signature verification when headers missing (e.g. manual curl). Zendesk always sends both.
-    has_sig_headers = bool(timestamp and signature)
-    if has_sig_headers and settings.ZENDESK_WEBHOOK_SECRET and not verify_webhook_signature(
-        body_bytes, timestamp, signature, settings.ZENDESK_WEBHOOK_SECRET
-    ):
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    # Verification: no secret configured = allow all; x-webhook-secret match = allow; Zendesk HMAC = verify
+    if secret:
+        if header_secret and header_secret == secret:
+            pass  # x-webhook-secret matches, allow
+        elif timestamp and signature:
+            if not verify_webhook_signature(body_bytes, timestamp, signature, secret):
+                raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        elif header_secret:
+            raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
     try:
         data = json.loads(body_bytes.decode("utf-8"))
@@ -183,12 +200,16 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
 
     correlation_id = str(uuid.uuid4())[:8]
 
-    # Run processing SYNCHRONOUSLY so it completes before response (background task is often killed on Render)
-    import asyncio
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, lambda: process_ticket_attachments(int(ticket_id), correlation_id))
+    # Run processing synchronously so it completes before response (Render often kills background tasks)
+    predictions = await process_ticket_attachments(int(ticket_id), correlation_id)
 
-    return {"ok": True, "ticket_id": ticket_id, "correlation_id": correlation_id}
+    return {
+        "ok": True,
+        "ticket_id": ticket_id,
+        "correlation_id": correlation_id,
+        "images_processed": len(predictions),
+        "predictions": predictions,
+    }
 
 
 @app.post("/sync/quick")

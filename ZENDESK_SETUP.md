@@ -34,7 +34,7 @@
 
 1. **Admin** → **Apps and integrations** → **Webhooks**
 2. **Create webhook**
-3. **Endpoint URL**: `https://classify.yourdomain.com/webhook` (replace with your Worker URL)
+3. **Endpoint URL**: `https://myaleena.com/webhook` (or `https://classify.yourdomain.com/webhook` for reason classification)
 4. **Request method**: POST
 5. **Request format**: JSON
 6. Save and note the webhook ID.
@@ -60,7 +60,7 @@
 For the **image-matcher** service (Zendesk attachment → shopaleena product URL):
 
 1. **Admin** → **Apps and integrations** → **Webhooks** → **Create webhook**
-2. **Endpoint URL**: `https://your-image-matcher-host/webhook/zendesk` (or `http://localhost:8000/webhook/zendesk` for dev)
+2. **Endpoint URL**: `https://myaleena.com/webhook/zendesk` (Worker proxies to Render image-matcher)
 3. **Request method**: POST, **Request format**: JSON
 4. (Optional) Set **Signing secret**; add as `ZENDESK_WEBHOOK_SECRET` in image-matcher env for verification
 5. **Add trigger**: **Conditions** → `Ticket` → `Updated` (or `Comment added` if available); **Actions** → Notify this webhook

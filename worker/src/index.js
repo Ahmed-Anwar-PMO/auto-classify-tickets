@@ -140,6 +140,7 @@ async function proxyToImageMatcher(request, env, ctx) {
         'Content-Type': 'application/json',
         'x-zendesk-webhook-signature-timestamp': request.headers.get('x-zendesk-webhook-signature-timestamp') || request.headers.get('x-zendesk-webhook-timestamp') || '',
         'x-zendesk-webhook-signature': request.headers.get('x-zendesk-webhook-signature') || '',
+        'x-webhook-secret': request.headers.get('x-webhook-secret') || request.headers.get('X-Webhook-Secret') || '',
       },
       body,
     }).catch((e) => console.error('Image matcher forward failed:', e))
