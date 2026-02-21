@@ -11,5 +11,6 @@ credentials.json
 image-matcher/.venv/
 image-matcher/data/
 image-matcher/cache/
+image-matcher/catalog.json
 image-matcher/__pycache__/
 image-matcher/**/__pycache__/

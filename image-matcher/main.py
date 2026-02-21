@@ -28,13 +28,22 @@ _data_dir = Path(settings.DATA_DIR)
 _cache_dir = Path(settings.CACHE_DIR)
 
 
+def _catalog_path() -> Path:
+    """Prefer runtime cache, then baked-in (from build). Ensures catalog_cached true after deploy."""
+    p = _cache_dir / "catalog.json"
+    if p.exists():
+        return p
+    baked = Path(__file__).parent / "catalog.json"
+    return baked if baked.exists() else p
+
+
 def get_matcher():
     """Lazy-load matcher (PyTorch/OpenCLIP) only when needed."""
     global _matcher
     if _matcher is not None:
         return _matcher
     from matcher import ProductMatcher, load_catalog_for_matcher
-    catalog_path = _cache_dir / "catalog.json"
+    catalog_path = _catalog_path()
     catalog = load_catalog_for_matcher(
         catalog_path,
         settings.SHOPIFY_STORE_DOMAIN,
@@ -145,8 +154,7 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> lis
 async def lifespan(app: FastAPI):
     _data_dir.mkdir(parents=True, exist_ok=True)
     _cache_dir.mkdir(parents=True, exist_ok=True)
-    catalog_path = _cache_dir / "catalog.json"
-    if not catalog_path.exists():
+    if not _catalog_path().exists():
         print("WARN: catalog.json not found. Call POST /sync/catalog or POST /sync/quick after deploy.")
     yield
     # cleanup if needed
@@ -164,9 +172,8 @@ def ping():
 
 @app.get("/health")
 def health():
-    """Health check. Does NOT load matcher (avoids OOM on free tier)."""
-    catalog_path = _cache_dir / "catalog.json"
-    catalog_exists = catalog_path.exists()
+    """Health check. catalog_cached true if baked-in or runtime catalog exists."""
+    catalog_exists = _catalog_path().exists()
     return {"ok": True, "catalog_cached": catalog_exists}
 
 
