@@ -180,7 +180,11 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Missing ticket ID")
 
     correlation_id = str(uuid.uuid4())[:8]
-    background_tasks.add_task(process_ticket_attachments, int(ticket_id), correlation_id)
+
+    # Run processing SYNCHRONOUSLY so it completes before response (background task is often killed on Render)
+    import asyncio
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: process_ticket_attachments(int(ticket_id), correlation_id))
 
     return {"ok": True, "ticket_id": ticket_id, "correlation_id": correlation_id}
 
