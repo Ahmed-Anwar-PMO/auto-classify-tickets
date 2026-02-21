@@ -1,0 +1,15 @@
+node_modules/
+.wrangler/
+dist/
+*.log
+.env
+.env.local
+credentials.json
+**/credentials.json
+
+# image-matcher
+image-matcher/.venv/
+image-matcher/data/
+image-matcher/cache/
+image-matcher/__pycache__/
+image-matcher/**/__pycache__/

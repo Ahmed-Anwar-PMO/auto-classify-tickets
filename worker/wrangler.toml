@@ -1,0 +1,13 @@
+name = "zendesk-ticket-classifier"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Set via wrangler secret or dashboard:
+# ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN
+# REASON_FIELD_ID (custom field ID for "Reason for contact")
+# SUPABASE_URL, SUPABASE_SERVICE_KEY (for audit logging)
+# IMAGE_MATCHER_URL - Python backend URL (e.g. https://your-app.onrender.com) for /webhook/zendesk
+
+# Secrets: wrangler secret put ZENDESK_API_TOKEN
+#          wrangler secret put SUPABASE_SERVICE_KEY

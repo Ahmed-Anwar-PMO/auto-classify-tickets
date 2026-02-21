@@ -1,0 +1,28 @@
+# Image-to-Product-URL matcher (minimal-cost stack per design doc)
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+requests>=2.31.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Embeddings
+torch>=2.1.0
+torchvision>=0.16.0
+open_clip_torch>=2.24.0
+
+# Vector search
+faiss-cpu>=1.7.4
+
+# Image I/O + preprocessing
+pillow>=10.2.0
+opencv-python-headless>=4.9.0
+
+# Dedup + OCR (optional)
+imagehash>=4.3.0
+pytesseract>=0.3.10
+
+# Supabase client
+supabase>=2.3.0
+
+# Labeling UI
+streamlit>=1.28.0

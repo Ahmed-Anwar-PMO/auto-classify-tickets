@@ -1,0 +1,32 @@
+# Render Blueprint: Image-to-Product matcher
+# Deploy at https://dashboard.render.com/blueprint/new?repo=<YOUR_REPO_URL>
+# Then set IMAGE_MATCHER_URL in Cloudflare Worker vars to your Render service URL.
+
+services:
+  - type: web
+    name: image-matcher
+    runtime: python
+    plan: starter  # PyTorch needs ~1GB+ RAM; free (512MB) may OOM. Use starter ($7/mo) or try free.
+    buildCommand: pip install -r image-matcher/requirements.txt
+    startCommand: cd image-matcher && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ZENDESK_SUBDOMAIN
+        sync: false
+      - key: ZENDESK_EMAIL
+        sync: false
+      - key: ZENDESK_API_TOKEN
+        sync: false
+      - key: ZENDESK_WEBHOOK_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SHOPIFY_STORE_DOMAIN
+        value: shopaleena.com
+      - key: SHOPIFY_STOREFRONT_TOKEN
+        sync: false
+      - key: DATA_DIR
+        value: /tmp/data
+      - key: CACHE_DIR
+        value: /tmp/cache

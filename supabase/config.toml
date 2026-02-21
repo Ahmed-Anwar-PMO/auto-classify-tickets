@@ -1,0 +1,6 @@
+# Supabase local config (optional). Use Dashboard for cloud.
+[api]
+enabled = true
+
+[db]
+port = 54322
