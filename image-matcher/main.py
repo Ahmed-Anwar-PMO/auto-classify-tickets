@@ -188,6 +188,13 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
 @app.post("/sync/catalog")
 def sync_catalog():
     """Fetch catalog from Shopify Storefront API or sitemap fallback."""
+    try:
+        return _do_sync_catalog()
+    except Exception as e:
+        return {"ok": False, "error": str(e), "type": type(e).__name__}
+
+
+def _do_sync_catalog():
     domain = settings.SHOPIFY_STORE_DOMAIN or "shopaleena.com"
     out_path = _cache_dir / "catalog.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -206,9 +213,9 @@ def sync_catalog():
                 return {"ok": True, "products": len(catalog), "source": source}
         except Exception as e:
             if source == "sitemap":
-                raise HTTPException(status_code=500, detail=str(e))
+                raise
             continue
-    raise HTTPException(status_code=500, detail="Could not fetch catalog from Storefront or sitemap")
+    raise RuntimeError("Could not fetch catalog from Storefront or sitemap")
 
 
 def _fetch_storefront(domain: str) -> list:
