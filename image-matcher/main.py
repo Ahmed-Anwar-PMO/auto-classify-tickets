@@ -189,9 +189,13 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
 def sync_catalog():
     """Fetch catalog from Shopify Storefront API or sitemap fallback."""
     try:
-        return _do_sync_catalog()
+        result = _do_sync_catalog()
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"ok": False, "error": str(e), "type": type(e).__name__}
+        import traceback
+        return {"ok": False, "error": str(e), "type": type(e).__name__, "tb": traceback.format_exc()[-500:]}
 
 
 def _do_sync_catalog():
