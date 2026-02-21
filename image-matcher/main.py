@@ -162,7 +162,7 @@ def health():
 async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
     """Zendesk webhook: validate signature, enqueue processing."""
     body_bytes = await request.body()
-    timestamp = request.headers.get("x-zendesk-webhook-timestamp", "")
+    timestamp = request.headers.get("x-zendesk-webhook-signature-timestamp", "") or request.headers.get("x-zendesk-webhook-timestamp", "")
     signature = request.headers.get("x-zendesk-webhook-signature", "")
 
     # Skip signature verification when headers missing (e.g. manual curl). Zendesk always sends both.

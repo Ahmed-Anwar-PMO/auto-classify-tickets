@@ -138,7 +138,7 @@ async function proxyToImageMatcher(request, env, ctx) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-zendesk-webhook-timestamp': request.headers.get('x-zendesk-webhook-timestamp') || '',
+        'x-zendesk-webhook-signature-timestamp': request.headers.get('x-zendesk-webhook-signature-timestamp') || request.headers.get('x-zendesk-webhook-timestamp') || '',
         'x-zendesk-webhook-signature': request.headers.get('x-zendesk-webhook-signature') || '',
       },
       body,
