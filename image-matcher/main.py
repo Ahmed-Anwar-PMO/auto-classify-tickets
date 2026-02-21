@@ -18,8 +18,8 @@ from zendesk_client import (
     download_attachment,
     add_internal_note,
 )
-from matcher import ProductMatcher, load_catalog_for_matcher
-from preprocess import load_and_strip_exif, sha256_hex, phash_hex
+# Matcher imported lazily to avoid loading PyTorch at startup (OOM on free tier)
+from preprocess import load_and_strip_exif
 from supabase_client import get_client, log_image_prediction, upsert_ticket_image
 
 # Lazy-loaded matcher (heavy)
@@ -28,10 +28,12 @@ _data_dir = Path(settings.DATA_DIR)
 _cache_dir = Path(settings.CACHE_DIR)
 
 
-def get_matcher() -> ProductMatcher | None:
+def get_matcher():
+    """Lazy-load matcher (PyTorch/OpenCLIP) only when needed."""
     global _matcher
     if _matcher is not None:
         return _matcher
+    from matcher import ProductMatcher, load_catalog_for_matcher
     catalog_path = _cache_dir / "catalog.json"
     catalog = load_catalog_for_matcher(
         catalog_path,
@@ -141,9 +143,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Image-to-Product Matcher", lifespan=lifespan)
 
 
+@app.get("/")
+@app.get("/ping")
+def ping():
+    """Minimal alive check. No dependencies."""
+    return {"ok": True}
+
+
 @app.get("/health")
 def health():
-    return {"ok": True, "matcher_loaded": get_matcher() is not None}
+    """Health check. Does NOT load matcher (avoids OOM on free tier)."""
+    catalog_path = _cache_dir / "catalog.json"
+    catalog_exists = catalog_path.exists()
+    return {"ok": True, "catalog_cached": catalog_exists}
 
 
 @app.post("/webhook/zendesk")
