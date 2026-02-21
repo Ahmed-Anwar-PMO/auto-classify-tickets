@@ -187,29 +187,40 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
 
 @app.post("/sync/catalog")
 def sync_catalog():
-    """Fetch catalog from Shopify Storefront API or sitemap fallback. Writes cache/catalog.json."""
+    """Fetch catalog from Shopify Storefront API or sitemap fallback."""
     domain = settings.SHOPIFY_STORE_DOMAIN or "shopaleena.com"
     out_path = _cache_dir / "catalog.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    from shopify_catalog import save_catalog_to_file, fetch_from_sitemap
 
-    if settings.SHOPIFY_STOREFRONT_TOKEN and domain:
+    for source, fetcher in [
+        ("storefront", lambda: _fetch_storefront(domain)),
+        ("sitemap", lambda: _fetch_sitemap(domain)),
+    ]:
         try:
-            from shopify_catalog import fetch_products_storefront
-            catalog = fetch_products_storefront(domain, settings.SHOPIFY_STOREFRONT_TOKEN)
-            save_catalog_to_file(catalog, out_path)
-            global _matcher
-            _matcher = None
-            return {"ok": True, "products": len(catalog), "source": "storefront"}
+            catalog = fetcher()
+            if catalog:
+                from shopify_catalog import save_catalog_to_file
+                save_catalog_to_file(catalog, out_path)
+                global _matcher
+                _matcher = None
+                return {"ok": True, "products": len(catalog), "source": source}
         except Exception as e:
-            # Fall back to sitemap on any Storefront failure
-            pass
+            if source == "sitemap":
+                raise HTTPException(status_code=500, detail=str(e))
+            continue
+    raise HTTPException(status_code=500, detail="Could not fetch catalog from Storefront or sitemap")
 
-    catalog = fetch_from_sitemap(domain)
-    save_catalog_to_file(catalog, out_path)
-    global _matcher
-    _matcher = None
-    return {"ok": True, "products": len(catalog), "source": "sitemap"}
+
+def _fetch_storefront(domain: str) -> list:
+    if not settings.SHOPIFY_STOREFRONT_TOKEN:
+        return []
+    from shopify_catalog import fetch_products_storefront
+    return fetch_products_storefront(domain, settings.SHOPIFY_STOREFRONT_TOKEN)
+
+
+def _fetch_sitemap(domain: str) -> list:
+    from shopify_catalog import fetch_from_sitemap
+    return fetch_from_sitemap(domain)
 
 
 @app.post("/match")
