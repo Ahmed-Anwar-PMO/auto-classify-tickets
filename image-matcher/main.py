@@ -165,9 +165,9 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
     timestamp = request.headers.get("x-zendesk-webhook-timestamp", "")
     signature = request.headers.get("x-zendesk-webhook-signature", "")
 
-    # Skip signature verification for manual testing: ?test=1 (don't use in prod URLs)
-    skip_sig = request.query_params.get("test") == "1"
-    if not skip_sig and settings.ZENDESK_WEBHOOK_SECRET and not verify_webhook_signature(
+    # Skip signature verification when headers missing (e.g. manual curl). Zendesk always sends both.
+    has_sig_headers = bool(timestamp and signature)
+    if has_sig_headers and settings.ZENDESK_WEBHOOK_SECRET and not verify_webhook_signature(
         body_bytes, timestamp, signature, settings.ZENDESK_WEBHOOK_SECRET
     ):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
