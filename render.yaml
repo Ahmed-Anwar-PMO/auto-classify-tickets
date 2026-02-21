@@ -6,9 +6,10 @@ services:
   - type: web
     name: image-matcher
     runtime: python
-    plan: starter  # PyTorch needs ~1GB+ RAM; free (512MB) may OOM. Use starter ($7/mo) or try free.
-    buildCommand: pip install -r image-matcher/requirements.txt
-    startCommand: cd image-matcher && uvicorn main:app --host 0.0.0.0 --port $PORT
+    rootDir: image-matcher
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: ZENDESK_SUBDOMAIN
         sync: false
