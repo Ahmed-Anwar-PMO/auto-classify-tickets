@@ -15,16 +15,18 @@
 
 ## 2. Cloudflare Worker (≈10 min)
 - [ ] `cd worker && npm install`
-- [ ] `npx wrangler login`
+- [ ] `npx wrangler login` (or set `CLOUDFLARE_API_TOKEN`)
 - [ ] `npx wrangler secret put ZENDESK_API_TOKEN`
 - [ ] `npx wrangler secret put SUPABASE_SERVICE_KEY`
-- [ ] Add vars (Dashboard or `wrangler.toml`):
+- [ ] Add vars (Dashboard → Variables, or `wrangler.toml`):
   - `ZENDESK_SUBDOMAIN` (e.g. `mycompany`)
   - `ZENDESK_EMAIL`
   - `REASON_FIELD_ID` (from step 3)
   - `SUPABASE_URL`
+  - `IMAGE_MATCHER_URL` (e.g. `https://image-matcher-whm0.onrender.com`) for `/webhook/zendesk`
 - [ ] `npx wrangler deploy`
-- [ ] Add route: `classify.yourdomain.com/webhook` → this Worker
+- [ ] Add routes (Dashboard → Domains & Routes, or run `worker/scripts/add-apex-route.ps1`):
+  - `myaleena.com/*` (apex) and `*.myaleena.com/*` (subdomains)
 
 ## 3. Zendesk (≈10 min)
 - [ ] Create "Reason for contact" drop-down field ([ZENDESK_SETUP.md](ZENDESK_SETUP.md))

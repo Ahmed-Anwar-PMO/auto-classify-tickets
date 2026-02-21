@@ -14,11 +14,11 @@ def get_client():
 
 
 def log_image_prediction(client, row: dict) -> None:
-    """Insert into image_prediction_log."""
+    """Insert or update image_prediction_log (dedupe by zendesk_attachment_id)."""
     if client is None:
         return
     try:
-        client.table("image_prediction_log").insert({
+        payload = {
             "zendesk_attachment_id": row["zendesk_attachment_id"],
             "zendesk_ticket_id": row["zendesk_ticket_id"],
             "predicted_product_id": row.get("predicted_product_id"),
@@ -26,7 +26,12 @@ def log_image_prediction(client, row: dict) -> None:
             "top_k": row.get("top_k", []),
             "confidence": row.get("confidence"),
             "model_version": row.get("model_version", "openclip-vit-b32"),
-        }).execute()
+        }
+        r = client.table("image_prediction_log").select("id").eq("zendesk_attachment_id", row["zendesk_attachment_id"]).limit(1).execute()
+        if r.data and len(r.data) > 0:
+            client.table("image_prediction_log").update(payload).eq("id", r.data[0]["id"]).execute()
+        else:
+            client.table("image_prediction_log").insert(payload).execute()
     except Exception as e:
         print(f"Supabase log failed: {e}")
 
