@@ -185,6 +185,19 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
     return {"ok": True, "ticket_id": ticket_id, "correlation_id": correlation_id}
 
 
+@app.post("/sync/quick")
+def sync_quick():
+    """Write minimal catalog for testing. No external fetch."""
+    out_path = _cache_dir / "catalog.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    catalog = [{"id": "test", "handle": "test", "title": "Test", "online_store_url": "https://shopaleena.com/products/test", "images": []}]
+    from shopify_catalog import save_catalog_to_file
+    save_catalog_to_file(catalog, out_path)
+    global _matcher
+    _matcher = None
+    return {"ok": True, "products": 1, "source": "quick"}
+
+
 @app.post("/sync/catalog")
 def sync_catalog():
     """Fetch catalog from Shopify Storefront API or sitemap fallback."""
