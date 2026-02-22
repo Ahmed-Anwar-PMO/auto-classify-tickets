@@ -8,12 +8,14 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import requests
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 
 from config import settings
 from zendesk_client import (
     verify_webhook_signature,
     fetch_ticket_comments,
+    fetch_ticket_audits,
     iter_image_attachments,
     download_attachment,
     add_internal_note,
@@ -60,25 +62,70 @@ def get_matcher():
     return _matcher
 
 
-async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> list[dict]:
-    """Fetch comments, download images, match, log. Returns list of predictions."""
+def _error_payload(stage: str, exc: Exception, **extra) -> dict:
+    payload = {
+        "stage": stage,
+        "type": type(exc).__name__,
+        "message": str(exc)[:300],
+    }
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        payload["status_code"] = exc.response.status_code
+    for key, value in extra.items():
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _safe_bigint(value, fallback: int) -> int:
+    try:
+        number = int(value)
+        if number > 0:
+            return number
+    except (TypeError, ValueError):
+        pass
+    return fallback if fallback > 0 else 1
+
+
+async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> dict:
+    """Fetch comments/audits, download images, match, and return structured outcome."""
     results: list[dict] = []
+    errors: list[dict] = []
     if not settings.zendesk_ok:
-        return results
-    comments = fetch_ticket_comments(
-        settings.ZENDESK_SUBDOMAIN,
-        settings.ZENDESK_EMAIL,
-        settings.ZENDESK_API_TOKEN,
-        ticket_id,
-    )
-    attachments = iter_image_attachments(comments)
+        return {"predictions": results, "reason": "zendesk_not_configured", "errors": errors}
+
+    try:
+        comments = fetch_ticket_comments(
+            settings.ZENDESK_SUBDOMAIN,
+            settings.ZENDESK_EMAIL,
+            settings.ZENDESK_API_TOKEN,
+            ticket_id,
+        )
+    except requests.HTTPError as exc:
+        errors.append(_error_payload("fetch_ticket_comments", exc, ticket_id=ticket_id))
+        return {"predictions": results, "reason": "zendesk_fetch_failed", "errors": errors}
+    except Exception as exc:
+        errors.append(_error_payload("fetch_ticket_comments", exc, ticket_id=ticket_id))
+        return {"predictions": results, "reason": "processing_error", "errors": errors}
+
+    audits: list[dict] = []
+    try:
+        audits = fetch_ticket_audits(
+            settings.ZENDESK_SUBDOMAIN,
+            settings.ZENDESK_EMAIL,
+            settings.ZENDESK_API_TOKEN,
+            ticket_id,
+        )
+    except Exception as exc:
+        errors.append(_error_payload("fetch_ticket_audits", exc, ticket_id=ticket_id))
+
+    attachments = iter_image_attachments(comments, audits=audits)
     if not attachments:
-        return results
+        return {"predictions": results, "reason": "no_images_found", "errors": errors}
 
     matcher = get_matcher()
     if matcher is None:
         print(f"[{correlation_id}] No catalog loaded, skip matching")
-        return results
+        return {"predictions": results, "reason": "catalog_not_loaded", "errors": errors}
 
     supabase = get_client()
     download_dir = _data_dir / "downloads" / str(ticket_id)
@@ -87,9 +134,11 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> lis
     for att in attachments:
         content_url = att.get("content_url")
         if not content_url:
+            errors.append(_error_payload("candidate_validation", ValueError("Missing content_url")))
             continue
-        att_id = att.get("id")
-        comment_id = att.get("comment_id")
+        fallback_id = int(uuid.uuid5(uuid.NAMESPACE_URL, str(content_url)).int & ((1 << 63) - 1)) or 1
+        att_id = _safe_bigint(att.get("id"), fallback_id)
+        comment_id = _safe_bigint(att.get("comment_id"), att_id)
         ext = ".jpg"
         dest = download_dir / f"{att_id}{ext}"
 
@@ -100,10 +149,11 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> lis
             dest,
         )
         if path is None:
+            errors.append(_error_payload("download_attachment", RuntimeError("Attachment download failed"), attachment_id=att_id))
             continue
 
         try:
-            img, _ = load_and_strip_exif(path)
+            _img, _ = load_and_strip_exif(path)
             top_k = matcher.match(path, top_k=5)
             pred = top_k[0] if top_k else None
             confidence = pred["score"] if pred else 0.0
@@ -144,10 +194,22 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> lis
                 "predicted_product_id": pred.get("product_id") if pred else None,
                 "confidence": float(confidence),
                 "top_k": top_k_clean,
+                "source": att.get("source"),
             })
+        except Exception as exc:
+            errors.append(_error_payload("match_attachment", exc, attachment_id=att_id, source=att.get("source")))
         finally:
             path.unlink(missing_ok=True)
-    return results
+
+    if results and errors:
+        reason = "partial_success"
+    elif results:
+        reason = "ok"
+    elif errors:
+        reason = "processing_error"
+    else:
+        reason = "no_images_found"
+    return {"predictions": results, "reason": reason, "errors": errors}
 
 
 @asynccontextmanager
@@ -208,7 +270,24 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
     correlation_id = str(uuid.uuid4())[:8]
 
     # Run processing synchronously so it completes before response (Render often kills background tasks)
-    predictions = await process_ticket_attachments(int(ticket_id), correlation_id)
+    try:
+        result = await process_ticket_attachments(int(ticket_id), correlation_id)
+    except requests.HTTPError as exc:
+        result = {
+            "predictions": [],
+            "reason": "zendesk_fetch_failed",
+            "errors": [_error_payload("process_ticket_attachments", exc, ticket_id=ticket_id)],
+        }
+    except Exception as exc:
+        result = {
+            "predictions": [],
+            "reason": "processing_error",
+            "errors": [_error_payload("process_ticket_attachments", exc, ticket_id=ticket_id)],
+        }
+
+    predictions = result.get("predictions") or []
+    errors = result.get("errors") or []
+    reason = result.get("reason") or "ok"
 
     return {
         "ok": True,
@@ -216,6 +295,8 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
         "correlation_id": correlation_id,
         "images_processed": len(predictions),
         "predictions": predictions,
+        "reason": reason,
+        "errors": errors,
     }
 
 
