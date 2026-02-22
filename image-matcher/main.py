@@ -64,7 +64,7 @@ def get_matcher():
     if _matcher is not None:
         return _matcher
     _ensure_model_cache_env()
-    from matcher import ProductMatcher, load_catalog_for_matcher
+    from matcher import HashProductMatcher, ProductMatcher, load_catalog_for_matcher
     catalog_path = _catalog_path()
     catalog = load_catalog_for_matcher(
         catalog_path,
@@ -73,14 +73,24 @@ def get_matcher():
     )
     if not catalog:
         return None
-    _matcher = ProductMatcher(
-        catalog,
-        model_name=settings.EMBEDDING_MODEL,
-        pretrained=settings.EMBEDDING_PRETRAINED,
-        device="cpu",
-        max_catalog_images=settings.MATCHER_MAX_CATALOG_IMAGES,
-        max_images_per_product=settings.MATCHER_MAX_IMAGES_PER_PRODUCT,
-    )
+    backend = (settings.MATCHER_BACKEND or "hash").strip().lower()
+    if backend == "clip":
+        _matcher = ProductMatcher(
+            catalog,
+            model_name=settings.EMBEDDING_MODEL,
+            pretrained=settings.EMBEDDING_PRETRAINED,
+            device="cpu",
+            max_catalog_images=settings.MATCHER_MAX_CATALOG_IMAGES,
+            max_images_per_product=settings.MATCHER_MAX_IMAGES_PER_PRODUCT,
+        )
+    else:
+        _matcher = HashProductMatcher(
+            catalog,
+            max_catalog_images=settings.MATCHER_MAX_CATALOG_IMAGES,
+            max_images_per_product=settings.MATCHER_MAX_IMAGES_PER_PRODUCT,
+            hash_size=settings.HASH_MATCHER_SIZE,
+        )
+    print(f"matcher backend={backend} catalog_items={len(catalog)}")
     return _matcher
 
 

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     ZENDESK_WRITE_BACK_CONFIDENCE: float = 0.75
 
     # Embedding model
+    MATCHER_BACKEND: str = "hash"  # hash | clip
+    HASH_MATCHER_SIZE: int = 8
     EMBEDDING_MODEL: str = "ViT-B-32"
     EMBEDDING_PRETRAINED: str = "laion2b_s34b_b79k"
     MATCHER_MAX_CATALOG_IMAGES: int = 24

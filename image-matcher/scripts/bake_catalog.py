@@ -27,6 +27,11 @@ def _ensure_model_cache_env() -> None:
 
 def _warm_model_cache() -> None:
     from config import settings
+
+    if (settings.MATCHER_BACKEND or "hash").strip().lower() != "clip":
+        print("Skipping OpenCLIP cache warmup (matcher backend is not clip)")
+        return
+
     from embeddings import load_model
 
     print(

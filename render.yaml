@@ -41,3 +41,7 @@ services:
         value: /opt/render/project/src/image-matcher/cache/model-cache/openclip
       - key: MATCHER_MAX_CATALOG_IMAGES
         value: "24"
+      - key: MATCHER_BACKEND
+        value: hash
+      - key: HASH_MATCHER_SIZE
+        value: "8"
