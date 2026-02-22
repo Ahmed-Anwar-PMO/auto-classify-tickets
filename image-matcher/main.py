@@ -5,6 +5,8 @@ Receives Zendesk webhooks, downloads attachments, matches to shopaleena products
 
 import asyncio
 import json
+import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,6 +35,20 @@ MATCHER_WARMUP_TIMEOUT_SEC = 90
 MATCH_TIMEOUT_PER_IMAGE_SEC = 12
 
 
+def _ensure_model_cache_env() -> None:
+    cache_root = Path(settings.MODEL_CACHE_DIR)
+    cache_root.mkdir(parents=True, exist_ok=True)
+    hf_home = cache_root / "hf"
+    torch_home = cache_root / "torch"
+    openclip_cache = cache_root / "openclip"
+    hf_home.mkdir(parents=True, exist_ok=True)
+    torch_home.mkdir(parents=True, exist_ok=True)
+    openclip_cache.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("HF_HOME", str(hf_home))
+    os.environ.setdefault("TORCH_HOME", str(torch_home))
+    os.environ.setdefault("OPENCLIP_CACHE_DIR", str(openclip_cache))
+
+
 def _catalog_path() -> Path:
     """Prefer runtime cache, then baked-in (from build). Ensures catalog_cached true after deploy."""
     p = _cache_dir / "catalog.json"
@@ -47,6 +63,7 @@ def get_matcher():
     global _matcher
     if _matcher is not None:
         return _matcher
+    _ensure_model_cache_env()
     from matcher import ProductMatcher, load_catalog_for_matcher
     catalog_path = _catalog_path()
     catalog = load_catalog_for_matcher(
@@ -96,7 +113,14 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> dic
     results: list[dict] = []
     errors: list[dict] = []
     if not settings.zendesk_ok:
-        return {"predictions": results, "reason": "zendesk_not_configured", "errors": errors}
+        return {
+            "predictions": results,
+            "images_processed": 0,
+            "reason": "zendesk_not_configured",
+            "errors": errors,
+        }
+
+    print(f"[{correlation_id}] process start ticket_id={ticket_id}")
 
     try:
         comments = fetch_ticket_comments(
@@ -107,10 +131,20 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> dic
         )
     except requests.HTTPError as exc:
         errors.append(_error_payload("fetch_ticket_comments", exc, ticket_id=ticket_id))
-        return {"predictions": results, "reason": "zendesk_fetch_failed", "errors": errors}
+        return {
+            "predictions": results,
+            "images_processed": 0,
+            "reason": "zendesk_fetch_failed",
+            "errors": errors,
+        }
     except Exception as exc:
         errors.append(_error_payload("fetch_ticket_comments", exc, ticket_id=ticket_id))
-        return {"predictions": results, "reason": "processing_error", "errors": errors}
+        return {
+            "predictions": results,
+            "images_processed": 0,
+            "reason": "processing_error",
+            "errors": errors,
+        }
 
     audits: list[dict] = []
     try:
@@ -124,20 +158,48 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> dic
         errors.append(_error_payload("fetch_ticket_audits", exc, ticket_id=ticket_id))
 
     attachments = iter_image_attachments(comments, audits=audits)
+    candidate_count = len(attachments)
+    print(f"[{correlation_id}] extracted {candidate_count} image candidates")
     if not attachments:
-        return {"predictions": results, "reason": "no_images_found", "errors": errors}
+        return {
+            "predictions": results,
+            "images_processed": 0,
+            "reason": "no_images_found",
+            "errors": errors,
+        }
 
+    warmup_started = time.perf_counter()
     try:
         matcher = await asyncio.wait_for(asyncio.to_thread(get_matcher), timeout=MATCHER_WARMUP_TIMEOUT_SEC)
     except TimeoutError as exc:
         errors.append(_error_payload("matcher_warmup", exc, timeout_sec=MATCHER_WARMUP_TIMEOUT_SEC))
-        return {"predictions": results, "reason": "matcher_warmup_timeout", "errors": errors}
+        elapsed = round(time.perf_counter() - warmup_started, 3)
+        print(f"[{correlation_id}] matcher warmup timeout after {elapsed}s")
+        return {
+            "predictions": results,
+            "images_processed": candidate_count,
+            "reason": "matcher_warmup_timeout",
+            "errors": errors,
+        }
     except Exception as exc:
         errors.append(_error_payload("matcher_warmup", exc))
-        return {"predictions": results, "reason": "processing_error", "errors": errors}
+        return {
+            "predictions": results,
+            "images_processed": candidate_count,
+            "reason": "processing_error",
+            "errors": errors,
+        }
+    warmup_elapsed = round(time.perf_counter() - warmup_started, 3)
+    print(f"[{correlation_id}] matcher ready in {warmup_elapsed}s")
+
     if matcher is None:
         print(f"[{correlation_id}] No catalog loaded, skip matching")
-        return {"predictions": results, "reason": "catalog_not_loaded", "errors": errors}
+        return {
+            "predictions": results,
+            "images_processed": candidate_count,
+            "reason": "catalog_not_loaded",
+            "errors": errors,
+        }
 
     supabase = get_client()
     download_dir = _data_dir / "downloads" / str(ticket_id)
@@ -224,7 +286,16 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> dic
         reason = "processing_error"
     else:
         reason = "no_images_found"
-    return {"predictions": results, "reason": reason, "errors": errors}
+    print(
+        f"[{correlation_id}] process done candidates={candidate_count} "
+        f"predictions={len(results)} reason={reason}"
+    )
+    return {
+        "predictions": results,
+        "images_processed": candidate_count,
+        "reason": reason,
+        "errors": errors,
+    }
 
 
 @asynccontextmanager
@@ -290,17 +361,20 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
     except requests.HTTPError as exc:
         result = {
             "predictions": [],
+            "images_processed": 0,
             "reason": "zendesk_fetch_failed",
             "errors": [_error_payload("process_ticket_attachments", exc, ticket_id=ticket_id)],
         }
     except Exception as exc:
         result = {
             "predictions": [],
+            "images_processed": 0,
             "reason": "processing_error",
             "errors": [_error_payload("process_ticket_attachments", exc, ticket_id=ticket_id)],
         }
 
     predictions = result.get("predictions") or []
+    images_processed = int(result.get("images_processed", len(predictions)))
     errors = result.get("errors") or []
     reason = result.get("reason") or "ok"
 
@@ -308,7 +382,7 @@ async def zendesk_webhook(request: Request, background_tasks: BackgroundTasks):
         "ok": True,
         "ticket_id": ticket_id,
         "correlation_id": correlation_id,
-        "images_processed": len(predictions),
+        "images_processed": images_processed,
         "predictions": predictions,
         "reason": reason,
         "errors": errors,

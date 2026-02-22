@@ -1,5 +1,6 @@
 """OpenCLIP image embeddings + FAISS nearest-neighbor search."""
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,15 @@ from PIL import Image
 
 def load_model(model_name: str = "ViT-B-32", pretrained: str = "laion2b_s34b_b79k", device: str = "cpu"):
     """Load OpenCLIP model and preprocess. CPU ok for moderate volume."""
-    model, _, preprocess = open_clip.create_model_and_transforms(model_name, pretrained=pretrained)
+    kwargs = {}
+    cache_dir = os.getenv("OPENCLIP_CACHE_DIR")
+    if cache_dir:
+        kwargs["cache_dir"] = cache_dir
+    try:
+        model, _, preprocess = open_clip.create_model_and_transforms(model_name, pretrained=pretrained, **kwargs)
+    except TypeError:
+        # Backward-compatible with open_clip versions that don't accept cache_dir.
+        model, _, preprocess = open_clip.create_model_and_transforms(model_name, pretrained=pretrained)
     model.eval().to(device)
     return model, preprocess, device
 

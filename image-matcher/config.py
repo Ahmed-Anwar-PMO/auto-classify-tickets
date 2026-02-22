@@ -33,12 +33,13 @@ class Settings(BaseSettings):
     # Embedding model
     EMBEDDING_MODEL: str = "ViT-B-32"
     EMBEDDING_PRETRAINED: str = "laion2b_s34b_b79k"
-    MATCHER_MAX_CATALOG_IMAGES: int = 80
+    MATCHER_MAX_CATALOG_IMAGES: int = 24
     MATCHER_MAX_IMAGES_PER_PRODUCT: int = 1
 
     # Paths
     DATA_DIR: str = "./data"
     CACHE_DIR: str = "./cache"
+    MODEL_CACHE_DIR: str = "./cache/model-cache"
     EMBEDDINGS_DIR: str = "./data/embeddings"
 
     @property

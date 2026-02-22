@@ -31,3 +31,13 @@ services:
         value: /tmp/data
       - key: CACHE_DIR
         value: /tmp/cache
+      - key: MODEL_CACHE_DIR
+        value: /opt/render/project/src/image-matcher/cache/model-cache
+      - key: HF_HOME
+        value: /opt/render/project/src/image-matcher/cache/model-cache/hf
+      - key: TORCH_HOME
+        value: /opt/render/project/src/image-matcher/cache/model-cache/torch
+      - key: OPENCLIP_CACHE_DIR
+        value: /opt/render/project/src/image-matcher/cache/model-cache/openclip
+      - key: MATCHER_MAX_CATALOG_IMAGES
+        value: "24"
