@@ -29,7 +29,7 @@ from supabase_client import get_client, log_image_prediction, upsert_ticket_imag
 _matcher: ProductMatcher | None = None
 _data_dir = Path(settings.DATA_DIR)
 _cache_dir = Path(settings.CACHE_DIR)
-MATCHER_WARMUP_TIMEOUT_SEC = 60
+MATCHER_WARMUP_TIMEOUT_SEC = 90
 MATCH_TIMEOUT_PER_IMAGE_SEC = 12
 
 
