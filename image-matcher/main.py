@@ -3,6 +3,7 @@ Image-to-Product-URL matcher: FastAPI service.
 Receives Zendesk webhooks, downloads attachments, matches to shopaleena products, logs to Supabase.
 """
 
+import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -28,6 +29,8 @@ from supabase_client import get_client, log_image_prediction, upsert_ticket_imag
 _matcher: ProductMatcher | None = None
 _data_dir = Path(settings.DATA_DIR)
 _cache_dir = Path(settings.CACHE_DIR)
+MATCHER_WARMUP_TIMEOUT_SEC = 25
+MATCH_TIMEOUT_PER_IMAGE_SEC = 12
 
 
 def _catalog_path() -> Path:
@@ -122,7 +125,14 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> dic
     if not attachments:
         return {"predictions": results, "reason": "no_images_found", "errors": errors}
 
-    matcher = get_matcher()
+    try:
+        matcher = await asyncio.wait_for(asyncio.to_thread(get_matcher), timeout=MATCHER_WARMUP_TIMEOUT_SEC)
+    except TimeoutError as exc:
+        errors.append(_error_payload("matcher_warmup", exc, timeout_sec=MATCHER_WARMUP_TIMEOUT_SEC))
+        return {"predictions": results, "reason": "matcher_warmup_timeout", "errors": errors}
+    except Exception as exc:
+        errors.append(_error_payload("matcher_warmup", exc))
+        return {"predictions": results, "reason": "processing_error", "errors": errors}
     if matcher is None:
         print(f"[{correlation_id}] No catalog loaded, skip matching")
         return {"predictions": results, "reason": "catalog_not_loaded", "errors": errors}
@@ -154,7 +164,10 @@ async def process_ticket_attachments(ticket_id: int, correlation_id: str) -> dic
 
         try:
             _img, _ = load_and_strip_exif(path)
-            top_k = matcher.match(path, top_k=5)
+            top_k = await asyncio.wait_for(
+                asyncio.to_thread(matcher.match, path, top_k=5),
+                timeout=MATCH_TIMEOUT_PER_IMAGE_SEC,
+            )
             pred = top_k[0] if top_k else None
             confidence = pred["score"] if pred else 0.0
 
