@@ -29,7 +29,7 @@ from supabase_client import get_client, log_image_prediction, upsert_ticket_imag
 _matcher: ProductMatcher | None = None
 _data_dir = Path(settings.DATA_DIR)
 _cache_dir = Path(settings.CACHE_DIR)
-MATCHER_WARMUP_TIMEOUT_SEC = 25
+MATCHER_WARMUP_TIMEOUT_SEC = 60
 MATCH_TIMEOUT_PER_IMAGE_SEC = 12
 
 
@@ -61,6 +61,8 @@ def get_matcher():
         model_name=settings.EMBEDDING_MODEL,
         pretrained=settings.EMBEDDING_PRETRAINED,
         device="cpu",
+        max_catalog_images=settings.MATCHER_MAX_CATALOG_IMAGES,
+        max_images_per_product=settings.MATCHER_MAX_IMAGES_PER_PRODUCT,
     )
     return _matcher
 

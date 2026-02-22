@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     # Embedding model
     EMBEDDING_MODEL: str = "ViT-B-32"
     EMBEDDING_PRETRAINED: str = "laion2b_s34b_b79k"
+    MATCHER_MAX_CATALOG_IMAGES: int = 80
+    MATCHER_MAX_IMAGES_PER_PRODUCT: int = 1
 
     # Paths
     DATA_DIR: str = "./data"

@@ -13,9 +13,19 @@ from preprocess import load_and_strip_exif
 class ProductMatcher:
     """Match ticket images to products via CLIP embeddings + FAISS."""
 
-    def __init__(self, catalog: list[dict], model_name: str = "ViT-B-32", pretrained: str = "laion2b_s34b_b79k", device: str = "cpu"):
+    def __init__(
+        self,
+        catalog: list[dict],
+        model_name: str = "ViT-B-32",
+        pretrained: str = "laion2b_s34b_b79k",
+        device: str = "cpu",
+        max_catalog_images: int = 80,
+        max_images_per_product: int = 1,
+    ):
         self.model, self.preprocess, self.device = load_model(model_name, pretrained, device)
         self.catalog = catalog
+        self.max_catalog_images = max(1, int(max_catalog_images))
+        self.max_images_per_product = max(1, int(max_images_per_product))
         self.product_images: list[dict] = []
         self.product_id_to_idx: dict[str, list[int]] = {}
         self.index = None
@@ -26,9 +36,13 @@ class ProductMatcher:
         vecs = []
         idx = 0
         for p in self.catalog:
+            if idx >= self.max_catalog_images:
+                break
             prod_id = p.get("id") or str(p.get("shopify_product_id", ""))
             url = p.get("online_store_url", "")
-            for pos, img_url in enumerate(p.get("images", [])):
+            for pos, img_url in enumerate((p.get("images", []) or [])[: self.max_images_per_product]):
+                if idx >= self.max_catalog_images:
+                    break
                 if not img_url:
                     continue
                 try:
@@ -59,7 +73,7 @@ class ProductMatcher:
 
     def _fetch_image(self, url: str) -> Image.Image | None:
         try:
-            r = requests.get(url, timeout=10, stream=True)
+            r = requests.get(url, timeout=4, stream=True)
             r.raise_for_status()
             return Image.open(r.raw).convert("RGB")
         except Exception:
